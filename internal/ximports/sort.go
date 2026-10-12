@@ -11,7 +11,8 @@ import (
 	"github.com/fsgo/go_fmt/internal/pkgs"
 )
 
-func defaultImportGroup(importPath string, opt common.Options) int {
+// DefaultImportGroup classifies an import using the gorgeous module policy.
+func DefaultImportGroup(importPath string, opt common.Options) int {
 	// 若是纯注释，则排在最上面
 	if len(importPath) == 0 {
 		return 0
@@ -39,7 +40,7 @@ func defaultImportGroup(importPath string, opt common.Options) int {
 func sortImportDecls(decls []*importDecl, opts common.Options) importDeclGroups {
 	groupFn := opts.ImportGroupFn
 	if groupFn == nil {
-		groupFn = defaultImportGroup
+		groupFn = DefaultImportGroup
 	}
 
 	result := make([]*importDeclGroup, 0)

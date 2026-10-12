@@ -54,7 +54,7 @@ func (c *cCallExpr) regexpRawString() {
 		return
 	}
 	node := c.Node
-	if isFunAny(node.Fun, "regexp.Compile", "regexp.MustCompile") && len(node.Args) == 1 {
+	if c.isFunAny(node.Fun, "regexp.Compile", "regexp.MustCompile") && len(node.Args) == 1 {
 		c.nodeRawString(node.Args[0])
 		return
 	}
@@ -101,7 +101,7 @@ func (c *cCallExpr) stringsReplace() {
 	if !astutil.UsesImport(c.req.AstFile, "strings") {
 		return
 	}
-	if !isFun(node.Fun, "strings", "Replace") {
+	if !c.isFun(node.Fun, "strings", "Replace") {
 		return
 	}
 	fun := node.Fun.(*ast.SelectorExpr)
@@ -126,7 +126,7 @@ func (c *cCallExpr) timeNowSub() {
 	if !ok2 {
 		return
 	}
-	if !isFun(x2.Fun, "time", "Now") {
+	if !c.isFun(x2.Fun, "time", "Now") {
 		return
 	}
 	if !astutil.UsesImport(c.req.AstFile, "time") {
@@ -157,7 +157,7 @@ func (c *cCallExpr) timeSubNow() {
 	if !ok {
 		return
 	}
-	if !isFun(arg.Fun, "time", "Now") {
+	if !c.isFun(arg.Fun, "time", "Now") {
 		return
 	}
 	fn, ok2 := node.Fun.(*ast.SelectorExpr)
@@ -167,6 +167,15 @@ func (c *cCallExpr) timeSubNow() {
 	if fn.Sel.Name != "Sub" {
 		return
 	}
+	typ, err := xpasser.TypeOf(c.req, fn.X)
+	if err != nil {
+		return
+	}
+	named, ok := typ.(*types.Named)
+	if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != "time" || named.Obj().Name() != "Time" {
+		return
+	}
+
 	if !astutil.UsesImport(c.req.AstFile, "time") {
 		return
 	}
@@ -189,7 +198,7 @@ func (c *cCallExpr) timeSubNow() {
 // fmt.Errorf("abc") -> errors.New("def")
 func (c *cCallExpr) fmtErrorf() {
 	node := c.Node
-	if !isFun(node.Fun, "fmt", "Errorf") {
+	if !c.isFun(node.Fun, "fmt", "Errorf") {
 		return
 	}
 	if len(node.Args) != 1 {
@@ -236,7 +245,7 @@ func (c *cCallExpr) fmtErrorf() {
 // custom15.go.input
 func (c *cCallExpr) errorsNewFmt() {
 	node := c.Node
-	if !isFun(node.Fun, "errors", "New") {
+	if !c.isFun(node.Fun, "errors", "New") {
 		return
 	}
 	if len(node.Args) != 1 {
@@ -252,7 +261,7 @@ func (c *cCallExpr) errorsNewFmt() {
 		return
 	}
 
-	if !isFun(a1.Fun, "fmt", "Sprintf") {
+	if !c.isFun(a1.Fun, "fmt", "Sprintf") {
 		return
 	}
 
@@ -298,7 +307,7 @@ func (c *cCallExpr) xPrintf() {
 // log.Panicf("abc") -> log.Panic("abc")
 func (c *cCallExpr) xPrintfByPkg(pkg string, fnOld string, fnNew string) {
 	node := c.Node
-	if !isFun(node.Fun, pkg, fnOld) {
+	if !c.isFun(node.Fun, pkg, fnOld) {
 		return
 	}
 
@@ -341,7 +350,7 @@ func (c *cCallExpr) xPrintfByPkg(pkg string, fnOld string, fnNew string) {
 // fmt.Fprintf(os.Stderr,"abc") -> fmt.Fprint(os.Stderr,"abc")
 func (c *cCallExpr) xFprintfByPkg(pkg string, fnOld string, fnNew string) {
 	node := c.Node
-	if !isFun(node.Fun, pkg, fnOld) {
+	if !c.isFun(node.Fun, pkg, fnOld) {
 		return
 	}
 	if len(node.Args) != 2 {
@@ -364,7 +373,7 @@ func (c *cCallExpr) xFprintfByPkg(pkg string, fnOld string, fnNew string) {
 // sort.Sort(sort.StringSlice(x)) => sort.Strings(x)
 func (c *cCallExpr) sortSlice() {
 	node := c.Node
-	if !isFun(node.Fun, "sort", "Sort") {
+	if !c.isFun(node.Fun, "sort", "Sort") {
 		return
 	}
 	if len(node.Args) != 1 {
@@ -381,21 +390,21 @@ func (c *cCallExpr) sortSlice() {
 		return
 	}
 
-	if isFun(arg.Fun, "sort", "StringSlice") {
+	if c.isFun(arg.Fun, "sort", "StringSlice") {
 		// sort.Sort(sort.StringSlice(x)) => sort.Strings(x)
 		xfun.Sel.Name = "Strings"
 		node.Args = arg.Args
 		return
 	}
 
-	if isFun(arg.Fun, "sort", "Float64Slice") {
+	if c.isFun(arg.Fun, "sort", "Float64Slice") {
 		// sort.Sort(sort.Float64Slice(x)) => sort.Float64s(x)
 		xfun.Sel.Name = "Float64s"
 		node.Args = arg.Args
 		return
 	}
 
-	if isFun(arg.Fun, "sort", "IntSlice") {
+	if c.isFun(arg.Fun, "sort", "IntSlice") {
 		// sort.Sort(sort.IntSlice(x)) => sort.Ints(x)
 		xfun.Sel.Name = "Ints"
 		node.Args = arg.Args
@@ -434,7 +443,7 @@ func (c *cCallExpr) writeFmtSprintf() {
 	if !ok4 {
 		return
 	}
-	if !isFun(aa.Fun, "fmt", "Sprintf") {
+	if !c.isFun(aa.Fun, "fmt", "Sprintf") {
 		return
 	}
 
@@ -471,7 +480,10 @@ func (c *cCallExpr) writeFmtSprintf() {
 // custom19_fmtSprintf.go.input
 func (c *cCallExpr) fmtSprintfInt() {
 	node := c.Node
-	if !isFun(node.Fun, "fmt", "Sprintf") {
+	if len(node.Args) != 2 || node.Ellipsis.IsValid() {
+		return
+	}
+	if !c.isFun(node.Fun, "fmt", "Sprintf") {
 		return
 	}
 
@@ -614,7 +626,7 @@ func (c *cCallExpr) fmtSprintfStrings() {
 		return
 	}
 
-	if !isFun(node.Fun, "fmt", "Sprintf") {
+	if !c.isFun(node.Fun, "fmt", "Sprintf") {
 		return
 	}
 
@@ -669,7 +681,10 @@ func (c *cCallExpr) fixOsFnWithNew() {
 }
 
 func (c *cCallExpr) doFixOsFnWithNew(old string, new string) {
-	if !isFun(c.Node.Fun, "os", old) {
+	if len(c.Node.Args) != 1 {
+		return
+	}
+	if !c.isFun(c.Node.Fun, "os", old) {
 		return
 	}
 	nn := &ast.CallExpr{

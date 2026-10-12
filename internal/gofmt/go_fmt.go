@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/fsgo/go_fmt/internal/common"
@@ -26,12 +28,11 @@ func NewFormatter() *Formatter {
 type Formatter struct {
 	// PrintResult 用于格式化过程中，打印结果
 	PrintResult func(fileName string, change bool, err error)
-
-	diffs diffResults
 }
 
 // Execute 执行代码格式化
 func (ft *Formatter) Execute(opt *Options) error {
+	opt = opt.Clone()
 	if e := opt.Check(); e != nil {
 		return e
 	}
@@ -51,62 +52,89 @@ func (ft *Formatter) execute(opt *Options) error {
 	if err != nil {
 		return err
 	}
-	xpasser.TryGoModTidy(*opt, files)
-
-	err = xpasser.Load(*opt, nil)
-	if err != nil {
-		log.Println("[wf] xpasser.Load:", err)
+	// Deduplicate paths before workers mutate syntax trees or write files.
+	seen := make(map[string]bool, len(files))
+	unique := files[:0]
+	for _, file := range files {
+		key := file
+		if file != common.NameSTDIN {
+			key, err = filepath.Abs(file)
+			if err != nil {
+				return err
+			}
+			key, err = filepath.EvalSymlinks(key)
+			if err != nil {
+				return err
+			}
+		}
+		if !seen[key] {
+			unique = append(unique, file)
+			seen[key] = true
+		}
 	}
-
-	ft.diffs = nil
-
-	ch := make(chan bool, 20) // 控制并发
-
+	files = unique
+	slices.Sort(files)
+	pr := xpasser.NewProgram()
+	if !opt.FormatOnly && len(files) > 0 && files[0] != common.NameSTDIN {
+		if err := pr.LoadFiles(*opt, files, nil); err != nil {
+			return fmt.Errorf("load source packages: %w", err)
+		}
+	}
+	var diffs diffResults
+	type result struct {
+		origin, pretty []byte
+		formatted      bool
+		err            error
+	}
+	results := make([]result, len(files))
 	var wg sync.WaitGroup
-	var failNum int64
-	var changeNum int64
-	var mu sync.Mutex
-	for i := 0; i < len(files); i++ {
+	limit := make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
+	for i, fileName := range files {
+		limit <- struct{}{}
 		wg.Add(1)
-		fileName := files[i]
-		ch <- true
-
-		// 并发，同时对多个文件进行格式化
 		go func() {
-			defer func() {
-				<-ch
-				wg.Done()
-			}()
-			change, err2 := ft.doFormat(opt, fileName)
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			if err2 != nil {
-				failNum++
-				err = err2
+			defer wg.Done()
+			defer func() { <-limit }()
+			if fileName == common.NameSTDIN {
+				results[i].origin, results[i].pretty, results[i].formatted, results[i].err = ft.Format(
+					fileName,
+					nil,
+					opt,
+				)
+				return
 			}
-			if change {
-				changeNum++
+			src, e := os.ReadFile(fileName)
+			results[i].origin = src
+			if e != nil {
+				results[i].err = e
+				return
 			}
+			results[i].pretty, results[i].formatted, results[i].err = formatFile(fileName, src, opt, pr)
 		}()
 	}
 	wg.Wait()
-	close(ch)
-
-	if len(ft.diffs) > 0 {
-		ft.diffs.Output(opt.DisplayFormat)
+	var changeNum int
+	for i, result := range results {
+		if diff := fileDiff(opt, files[i], result.origin, result.pretty, result.err); diff != nil {
+			diffs = append(diffs, diff)
+		}
+		changed, e := ft.output(opt, files[i], result.origin, result.pretty, result.formatted, result.err)
+		if e != nil {
+			err = e
+		}
+		if changed {
+			changeNum++
+		}
 	}
-	mu.Lock()
-	defer mu.Unlock()
+
+	if len(diffs) > 0 {
+		diffs.Output(opt.DisplayFormat)
+	}
 	if err != nil {
 		return err
 	}
-	if failNum > 0 {
-		return fmt.Errorf("%d files format failed", failNum)
-	}
 	if opt.DisplayDiff && changeNum > 0 {
-		return fmt.Errorf("%d files sholud be formated", changeNum)
+		return fmt.Errorf("%d files should be formatted", changeNum)
 	}
 	return nil
 }
@@ -124,13 +152,13 @@ func (ft *Formatter) printFmtResult(fileName string, change bool, event string, 
 	fmt.Fprint(os.Stderr, txt, "\n")
 }
 
-func (ft *Formatter) execCallBack(opt *Options, fileName string, originSrc []byte, prettySrc []byte, err error) {
-	if bytes.Equal(originSrc, prettySrc) || !opt.DisplayDiff {
-		return
+func fileDiff(opt *Options, fileName string, originSrc []byte, prettySrc []byte, err error) *diffResult {
+	if bytes.Equal(originSrc, prettySrc) || !opt.DisplayDiff || err != nil {
+		return nil
 	}
 	result := common.Diff(string(originSrc), string(prettySrc), opt.Trace)
 	if result == nil {
-		return
+		return nil
 	}
 
 	df := &diffResult{
@@ -138,15 +166,16 @@ func (ft *Formatter) execCallBack(opt *Options, fileName string, originSrc []byt
 		Diffs:  result.Detail(),
 		result: result,
 	}
-	if err != nil {
-		df.Error = err.Error()
-	}
-	ft.diffs = append(ft.diffs, df)
+	return df
 }
 
-func (ft *Formatter) doFormat(opt *Options, fileName string) (bool, error) {
-	originSrc, prettySrc, formatted, err := ft.Format(fileName, nil, opt)
-	ft.execCallBack(opt, fileName, originSrc, prettySrc, err)
+func (ft *Formatter) output(
+	opt *Options,
+	fileName string,
+	originSrc, prettySrc []byte,
+	formatted bool,
+	err error,
+) (bool, error) {
 	changed := !bytes.Equal(originSrc, prettySrc)
 	if err != nil {
 		ft.printFmtResult(fileName, true, "error", common.ConsoleRed, err)
@@ -179,8 +208,12 @@ func (ft *Formatter) doFormat(opt *Options, fileName string) (bool, error) {
 }
 
 // Format 格式化文件，获取格式化后的内容
-func (ft *Formatter) Format(fileName string, src []byte, opt *Options) (origin []byte, pretty []byte, formatted bool, err error) {
-	if len(src) == 0 {
+func (ft *Formatter) Format(
+	fileName string,
+	src []byte,
+	opt *Options,
+) (origin []byte, pretty []byte, formatted bool, err error) {
+	if src == nil {
 		if fileName == common.NameSTDIN {
 			src, err = io.ReadAll(os.Stdin)
 		} else {
@@ -190,8 +223,18 @@ func (ft *Formatter) Format(fileName string, src []byte, opt *Options) (origin [
 			return nil, nil, false, err
 		}
 	}
-	pretty, formatted, err = Format(fileName, src, opt)
-
+	sourceName := fileName
+	if fileName == common.NameSTDIN {
+		sourceName = opt.SourcePath
+		if sourceName == "" {
+			sourceName = "stdin.go"
+		}
+	}
+	sourceName, err = filepath.Abs(sourceName)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	pretty, formatted, err = Format(sourceName, src, opt)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -201,7 +244,6 @@ func (ft *Formatter) Format(fileName string, src []byte, opt *Options) (origin [
 // FormatAndWriteFile 格式化并写入文件
 func (ft *Formatter) FormatAndWriteFile(fileName string, opt *Options) (bool, error) {
 	originSrc, prettySrc, _, err := ft.Format(fileName, nil, opt)
-
 	if err != nil {
 		return false, err
 	}

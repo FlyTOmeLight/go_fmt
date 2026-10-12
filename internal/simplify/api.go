@@ -29,8 +29,10 @@ func Format(req *common.Request) {
 	req.MustReParse()
 }
 
-var ruleMsg1 = "rewrite rule must be of the form 'pattern -> replacement'"
-var ruleMsg2 = ruleMsg1 + " or a valid filepath"
+var (
+	ruleMsg1 = "rewrite rule must be of the form 'pattern -> replacement'"
+	ruleMsg2 = ruleMsg1 + " or a valid filepath"
+)
 
 // Rewrite 简化代码
 //
@@ -39,7 +41,13 @@ func Rewrite(req *common.Request, rule string) (f *ast.File, e error) {
 	defer func() {
 		if re := recover(); re != nil {
 			st := debug.Stack()
-			e = fmt.Errorf("panic when Rewrite, file=%q rule=%q, detail=%v,stack=%s", req.FileName, rule, re, st)
+			e = fmt.Errorf(
+				"panic when Rewrite, file=%q rule=%q, detail=%v,stack=%s",
+				req.FileName,
+				rule,
+				re,
+				st,
+			)
 		}
 	}()
 	rule, cmt := splitRule(rule)

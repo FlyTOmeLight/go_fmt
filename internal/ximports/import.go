@@ -139,7 +139,7 @@ func parserImportSrc(src []byte) (lines []*importDecl, err error) {
 
 	var decl *importDecl
 
-	var checkDecl = func() {
+	checkDecl := func() {
 		if decl == nil {
 			decl = new(importDecl)
 		}

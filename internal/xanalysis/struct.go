@@ -7,17 +7,15 @@ package xanalysis
 import (
 	"go/ast"
 	"go/types"
-	"log"
 
 	"github.com/fsgo/go_fmt/internal/common"
-	"github.com/fsgo/go_fmt/internal/xpasser"
 )
 
 func fixStruct(req *common.Request) {
 	ast.Inspect(req.AstFile, func(n ast.Node) bool {
 		if vt, ok := n.(*ast.CompositeLit); ok && len(vt.Elts) > 0 {
-			if p, err := xpasser.FindPackage(req.FileName); err == nil {
-				vtp := p.TypesInfo.TypeOf(vt)
+			if req.TypesInfo != nil {
+				vtp := req.TypesInfo.TypeOf(vt)
 				if vts, ok2 := vtp.(*types.Struct); ok2 {
 					// for pointer
 					// eg: type user struct{name string}
@@ -31,10 +29,6 @@ func fixStruct(req *common.Request) {
 						doFixStruct(req, vt, vts)
 					}
 				}
-			} else {
-				if req.Opt.Trace {
-					log.Println("cannot found pkg:", err)
-				}
 			}
 		}
 		return true
@@ -42,7 +36,7 @@ func fixStruct(req *common.Request) {
 }
 
 func doFixStruct(req *common.Request, ac *ast.CompositeLit, at *types.Struct) {
-	if len(ac.Elts) == 0 {
+	if len(ac.Elts) == 0 || len(ac.Elts) > at.NumFields() {
 		return
 	}
 	switch ac.Elts[0].(type) {

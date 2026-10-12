@@ -15,6 +15,13 @@ import (
 func allGoFiles(dir string) ([]string, error) {
 	var goFiles []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && path != dir &&
+			(info.Name() == "testdata" || info.Name() == "vendor" || strings.HasPrefix(info.Name(), ".")) {
+			return filepath.SkipDir
+		}
 		if err == nil && isGoFile(info) && !isIgnorePath(path) {
 			goFiles = append(goFiles, path)
 		}

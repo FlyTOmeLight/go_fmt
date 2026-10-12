@@ -15,8 +15,10 @@ import (
 	"sync"
 )
 
-var curPkgs []string
-var curErr error
+var (
+	curPkgs []string
+	curErr  error
+)
 
 var doOnce sync.Once
 

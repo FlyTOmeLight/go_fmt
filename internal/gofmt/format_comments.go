@@ -33,7 +33,8 @@ func FormatComments(req *common.Request) {
 					// spec comment,ignore
 				} else {
 					// 若 // 后没有空格则补充
-					if !strings.HasPrefix(cm.Text, "// ") && !strings.HasPrefix(cm.Text, "//	") {
+					if !strings.HasPrefix(cm.Text, "// ") &&
+						!strings.HasPrefix(cm.Text, "//	") {
 						cm.Text = "// " + cm.Text[2:]
 					}
 				}

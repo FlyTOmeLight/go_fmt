@@ -6,6 +6,9 @@ package common
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 )
 
@@ -19,6 +22,15 @@ func DoNotEdit(name string, src []byte) bool {
 
 // doNotEditBySrc 该代码是否不让修改，这类一般是由代码工具自动生成
 func doNotEditBySrc(src []byte) bool {
+	if file, err := parser.ParseFile(
+		token.NewFileSet(),
+		"",
+		src,
+		parser.PackageClauseOnly|parser.ParseComments,
+	); err == nil &&
+		ast.IsGenerated(file) {
+		return true
+	}
 	lines := bytes.Split(src, []byte("\n"))
 	if len(lines) == 0 {
 		return false

@@ -59,7 +59,7 @@ func CheckDir(t *testing.T, dir string) {
 
 	runDir := filepath.Join(dir, "tmp")
 	_ = os.RemoveAll(runDir)
-	fst.NoError(t, os.MkdirAll(runDir, 0755))
+	fst.NoError(t, os.MkdirAll(runDir, 0o755))
 	wants := map[string]string{}
 	err = filepath.Walk(caseDir, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
@@ -77,8 +77,8 @@ func CheckDir(t *testing.T, dir string) {
 			wants[to] = string(code)
 		} else {
 			to = strings.ReplaceAll(to, ".input", "")
-			_ = os.MkdirAll(filepath.Dir(to), 0755)
-			err3 := os.WriteFile(to, code, 0644)
+			_ = os.MkdirAll(filepath.Dir(to), 0o755)
+			err3 := os.WriteFile(to, code, 0o644)
 			fst.NoError(t, err3)
 		}
 		return nil
@@ -109,10 +109,13 @@ func CheckDir(t *testing.T, dir string) {
 	err = ft.Execute(opt)
 	fst.NoError(t, err)
 
+	conf := &packages.Config{Mode: packages.NeedTypes | packages.NeedImports, BuildFlags: []string{"-mod=readonly"}}
+	pkgs, err := packages.Load(conf, "./...")
+	fst.NoError(t, err)
 	var n int
-	packages.Visit(xpasser.Default.Packages(), nil, func(pkg *packages.Package) {
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
 		for _, err := range pkg.Errors {
-			t.Logf("pkg Errors:%s %s", pkg.Name, err)
+			t.Logf("pkg Errors: %s", err)
 			n++
 		}
 	})

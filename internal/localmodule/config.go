@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 type config struct {
@@ -17,18 +18,12 @@ type config struct {
 	DomainLevel map[string]int
 }
 
-var configLoaded bool
+var loadConfig = sync.OnceValue(readConfig)
 
 // 加载用户自定义配置,配置内容为json，
 // 比如：
 // {"abc.com":3}
-func loadConfig() error {
-	// 只需要加载一次
-	if configLoaded {
-		return nil
-	}
-	configLoaded = true
-
+func readConfig() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err

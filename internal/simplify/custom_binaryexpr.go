@@ -228,7 +228,7 @@ func (c *cBinaryExpr) stringsBytesCount0(pkg string) {
 	if !ok1 {
 		return
 	}
-	if !isFun(x.Fun, pkg, "Count") {
+	if !c.isFun(x.Fun, pkg, "Count") {
 		return
 	}
 	isVal0 := isBasicLitValue(cond.Y, token.INT, "0")
@@ -284,7 +284,7 @@ func (c *cBinaryExpr) stringsBytesIndex1(pkg string) {
 	if !ok1 {
 		return
 	}
-	if !isFun(x.Fun, pkg, "Index") {
+	if !c.isFun(x.Fun, pkg, "Index") {
 		return
 	}
 
@@ -341,7 +341,7 @@ func (c *cBinaryExpr) bytesCompare0() {
 	if !ok1 {
 		return
 	}
-	if !isFun(x.Fun, "bytes", "Compare") {
+	if !c.isFun(x.Fun, "bytes", "Compare") {
 		return
 	}
 	if !isBasicLitValue(cond.Y, token.INT, "0") {
@@ -412,7 +412,7 @@ func (c *cBinaryExpr) stringsCompare0() {
 	if !ok1 {
 		return
 	}
-	if !isFun(x.Fun, "strings", "Compare") {
+	if !c.isFun(x.Fun, "strings", "Compare") {
 		return
 	}
 	if !isBasicLitValue(cond.Y, token.INT, "0") {
@@ -420,8 +420,7 @@ func (c *cBinaryExpr) stringsCompare0() {
 	}
 
 	switch cond.Op {
-	case token.EQL,
-		token.NEQ:
+	case token.EQL, token.NEQ:
 		c1 := &ast.BinaryExpr{
 			X:  x.Args[0],
 			Op: cond.Op,

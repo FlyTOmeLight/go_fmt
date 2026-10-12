@@ -33,7 +33,7 @@ jobs:
           CGO_ENABLED=0 \
           go build -ldflags "-s -w" \
           -o dist/gorgeous_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} \
-          cmd/gorgeous/main.go
+          ./cmd/gorgeous
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
@@ -47,6 +47,9 @@ jobs:
     needs: build
 
     steps:
+      - name: Checkout license notices
+        uses: actions/checkout@v7
+
       - name: Download Artifact
         uses: actions/download-artifact@v8
         with:
@@ -55,6 +58,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/**
+          files: |
+            dist/**
+            THIRD_PARTY_LICENSES.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

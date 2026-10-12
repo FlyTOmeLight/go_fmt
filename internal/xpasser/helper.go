@@ -13,11 +13,10 @@ import (
 )
 
 func TypeOf(req *common.Request, e ast.Expr) (types.Type, error) {
-	p, err := FindPackage(req.FileName)
-	if err != nil {
-		return nil, err
+	if req.TypesInfo == nil {
+		return nil, fmt.Errorf("type information unavailable for %s", req.FileName)
 	}
-	vt := p.TypesInfo.TypeOf(e)
+	vt := req.TypesInfo.TypeOf(e)
 	if vt != nil {
 		return vt, nil
 	}

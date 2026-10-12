@@ -418,7 +418,7 @@ func TestFormatImports(t *testing.T) {
 			fst.NoError(t, err)
 
 			if !bytes.Equal(want, got) {
-				_ = os.WriteFile(tmpPath, got, 0644)
+				_ = os.WriteFile(tmpPath, got, 0o644)
 				t.Logf("got file=%s", tmpPath)
 			}
 

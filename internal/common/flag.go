@@ -24,7 +24,7 @@ func (ss *stringSlice) Set(s2 string) error {
 		}
 	}
 	if len(result) > 0 {
-		*ss = result
+		*ss = append(*ss, result...)
 	}
 	return nil
 }

@@ -53,20 +53,26 @@ func CheckFile(t *testing.T, inputFile, wantFile string, do func(req *common.Req
 			Opt:      *opt,
 		}
 
+		if pkg, err := xpasser.FindPackage(name1); err == nil {
+			req.TypesInfo = pkg.TypesInfo
+		}
+
 		do(req)
 		req.MustReParse() // 重新格式化
 		code, err := req.FormatFile()
 		fst.NoError(t, err)
 
 		if len(wantFile) > 0 {
-			bw, _ := os.ReadFile(wantFile)
+			bw, err := os.ReadFile(wantFile)
+			fst.NoError(t, err)
 			gf := wantFile + ".got"
 			if string(bw) == string(code) {
 				_ = os.Remove(gf)
 			} else {
 				t.Logf("want: %s", gf)
-				e2 := os.WriteFile(gf, code, 0644)
+				e2 := os.WriteFile(gf, code, 0o644)
 				fst.NoError(t, e2)
+				t.Errorf("formatted output differs from %s; actual output: %s", wantFile, gf)
 			}
 			fst.NotEmpty(t, bw)
 		} else {

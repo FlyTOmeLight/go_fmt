@@ -103,9 +103,15 @@ func runTest(t *testing.T, ruleDirName string, opt *Options) {
 			fileGot := rule1Dir + "/tmp/" + filepath.Base(path) + ".got"
 			fileWant := rule1Dir + "/tmp/" + filepath.Base(path) + ".want"
 			if !bytes.Equal(got, want) {
-				err1 := os.WriteFile(fileGot, got, 0644)
-				err2 := os.WriteFile(fileWant, want, 0644)
-				t.Errorf("not eq, fileget=%q (write=%v), filewant=%q (write=%v)", fileGot, err1, fileWant, err2)
+				err1 := os.WriteFile(fileGot, got, 0o644)
+				err2 := os.WriteFile(fileWant, want, 0o644)
+				t.Errorf(
+					"not eq, fileget=%q (write=%v), filewant=%q (write=%v)",
+					fileGot,
+					err1,
+					fileWant,
+					err2,
+				)
 			} else {
 				_ = os.Remove(fileGot)
 				_ = os.Remove(fileWant)

@@ -71,7 +71,8 @@ func (s simplifier) Visit(node ast.Node) ast.Visitor {
 		}
 		if s, _ := n.X.(*ast.Ident); s != nil {
 			// the array/slice object is a single identifier
-			if call, _ := n.High.(*ast.CallExpr); call != nil && len(call.Args) == 1 && !call.Ellipsis.IsValid() {
+			if call, _ := n.High.(*ast.CallExpr); call != nil && len(call.Args) == 1 &&
+				!call.Ellipsis.IsValid() {
 				// the high expression is a function call with a single argument
 				if fun, _ := call.Fun.(*ast.Ident); fun != nil && fun.Name == "len" {
 					// the function called is "len"

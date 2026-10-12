@@ -11,6 +11,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"log"
 	"os"
 	"path/filepath"
@@ -84,6 +85,15 @@ func getOverlay() map[string][]byte {
 
 // Load 加载解析应用
 func Load(opt common.Options, patterns []string) error {
+	Default.pkgs = nil
+	return Default.load(opt, patterns, "", getOverlay())
+}
+
+func NewProgram() *Program {
+	return &Program{FSet: token.NewFileSet()}
+}
+
+func (pr *Program) load(opt common.Options, patterns []string, dir string, overlay map[string][]byte) error {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -93,9 +103,11 @@ func Load(opt common.Options, patterns []string) error {
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedTypesSizes |
 			packages.NeedSyntax | packages.NeedTypesInfo,
-		Tests:   true,
-		Fset:    Default.FSet,
-		Overlay: getOverlay(),
+		Tests:      true,
+		Fset:       pr.FSet,
+		Overlay:    overlay,
+		Dir:        dir,
+		BuildFlags: []string{"-mod=readonly"},
 		// Logf: func(format string, args ...interface{}) {
 		// 	log.Printf(format,args...)
 		// },
@@ -112,7 +124,7 @@ func Load(opt common.Options, patterns []string) error {
 	if err != nil {
 		return err
 	}
-	Default.pkgs = pkgs
+	pr.pkgs = append(pr.pkgs, pkgs...)
 	if opt.Trace {
 		log.Println("prog.Load_done", "pkgs", pkgs, "patterns=", patterns, "cost=", time.Since(start).String())
 	}
@@ -133,13 +145,24 @@ func (pr *Program) findPkg(filename string) (*packages.Package, *ast.File, error
 			goFiles++
 			if n == ap {
 				if len(p.Syntax) <= j {
-					return nil, nil, fmt.Errorf("%w: %s, invalid Syntax, Errors: %v", errFileNotFound, filename, p.Errors)
+					return nil, nil, fmt.Errorf(
+						"%w: %s, invalid Syntax, Errors: %v",
+						errFileNotFound,
+						filename,
+						p.Errors,
+					)
 				}
 				return p, p.Syntax[j], nil
 			}
 		}
 	}
-	return nil, nil, fmt.Errorf("%w: %s, len(pkgs)=%d, goFiles=%d", errFileNotFound, filename, len(pr.pkgs), goFiles)
+	return nil, nil, fmt.Errorf(
+		"%w: %s, len(pkgs)=%d, goFiles=%d",
+		errFileNotFound,
+		filename,
+		len(pr.pkgs),
+		goFiles,
+	)
 }
 
 // FindPackage  查找所属 package
@@ -166,4 +189,40 @@ func ParserFile(filename string, src any) (*ast.File, error) {
 // FindPackage 查找 pkg 信息
 func FindPackage(filename string) (*packages.Package, error) {
 	return Default.FindPackage(filename)
+}
+
+// LoadFiles loads only the packages containing the requested files. Each module
+// is loaded from its own directory; files outside the current module also work.
+func (pr *Program) LoadFiles(opt common.Options, files []string, overlay map[string][]byte) error {
+	groups := map[string][]string{}
+	var dirs []string
+	for _, file := range files {
+		ap, err := filepath.Abs(file)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(ap)
+		if mod, err := common.FindGoModPath(ap); err == nil {
+			dir = filepath.Dir(mod)
+		}
+		if _, exists := groups[dir]; !exists {
+			dirs = append(dirs, dir)
+		}
+		groups[dir] = append(groups[dir], "file="+ap)
+	}
+	for _, dir := range dirs {
+		if err := pr.load(opt, groups[dir], dir, overlay); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TypesInfo returns type information only for packages that loaded without errors.
+func (pr *Program) TypesInfo(filename string) *types.Info {
+	p, err := pr.FindPackage(filename)
+	if err != nil || p.IllTyped || len(p.Errors) != 0 {
+		return nil
+	}
+	return p.TypesInfo
 }

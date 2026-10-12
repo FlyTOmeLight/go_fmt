@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"strings"
 )
 
@@ -15,8 +16,7 @@ func isIntExprValue(v ast.Expr) bool {
 	if isBasicLitKind(v, token.INT) {
 		return true
 	}
-	_, ok := v.(*ast.BasicLit) // fmt.Println(8)
-	if ok {
+	if isBasicLitKind(v, token.CHAR) {
 		return true
 	}
 	cv, ok1 := v.(*ast.CallExpr) // fmt.Println(int16(8))
@@ -74,20 +74,20 @@ func isBasicLitKind(n ast.Expr, kind token.Token) bool {
 
 // isFunAny 判断是否任意的方法调用
 // fnNames: regexp.Compile
-func isFunAny(fn ast.Expr, fnNames ...string) bool {
+func (cb customBase) isFunAny(fn ast.Expr, fnNames ...string) bool {
 	for i := 0; i < len(fnNames); i++ {
 		info := strings.Split(fnNames[i], ".")
 		if len(info) != 2 {
 			panic(fmt.Sprintf("invalid fuc name %q, expect like x.y", fnNames[i]))
 		}
-		if isFun(fn, info[0], info[1]) {
+		if cb.isFun(fn, info[0], info[1]) {
 			return true
 		}
 	}
 	return false
 }
 
-func isFun(fn ast.Expr, pkg string, name string) bool {
+func (cb customBase) isFun(fn ast.Expr, pkg string, name string) bool {
 	fun, ok2 := fn.(*ast.SelectorExpr)
 	if !ok2 {
 		return false
@@ -96,7 +96,12 @@ func isFun(fn ast.Expr, pkg string, name string) bool {
 		return false
 	}
 	x, ok3 := fun.X.(*ast.Ident)
-	return ok3 && x.Name == pkg
+	if !ok3 || x.Name != pkg || cb.req.TypesInfo == nil {
+		return false
+	}
+	obj := cb.req.TypesInfo.ObjectOf(x)
+	imported, ok := obj.(*types.PkgName)
+	return ok && imported.Imported().Path() == pkg
 }
 
 func isExpVarBasic(e ast.Expr) bool {

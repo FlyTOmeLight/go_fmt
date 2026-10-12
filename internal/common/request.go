@@ -9,6 +9,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"reflect"
 	"sort"
@@ -37,6 +38,9 @@ func NewTestRequest(fileName string) *Request {
 type Request struct {
 	FSet    *token.FileSet
 	AstFile *ast.File
+
+	// TypesInfo belongs to this request's original syntax tree.
+	TypesInfo *types.Info
 
 	// tokenLine 用于处理 AstFile 的对应的 TokenLine
 	tokenLine *TokenLine
@@ -77,7 +81,7 @@ func (req *Request) Save(name string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(name, code, 0644)
+	return os.WriteFile(name, code, 0o644)
 }
 
 // ReParse 重新解析
@@ -125,10 +129,15 @@ func (req *Request) Clone() *Request {
 // GoVersionGEQ 判断模块 Go 的版本是否 >= 指定版本
 // version: 版本号，如 1.19
 func (req *Request) GoVersionGEQ(version string) bool {
+	return semver.Compare("v"+req.GoVersion(), "v"+version) >= 0
+}
+
+// GoVersion returns the source module's language version.
+func (req *Request) GoVersion() string {
 	req.goVersionOnce.Do(func() {
 		req.goVersion = goVersionByFile(req.FileName)
 	})
-	return semver.Compare("v"+req.goVersion, "v"+version) >= 0
+	return req.goVersion
 }
 
 // NoFormat 判断一个节点是否不需要执行格式化

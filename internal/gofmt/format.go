@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/fsgo/go_fmt/internal/common"
 	"github.com/fsgo/go_fmt/internal/localmodule"
 	"github.com/fsgo/go_fmt/internal/simplify"
 	"github.com/fsgo/go_fmt/internal/xanalysis"
 	"github.com/fsgo/go_fmt/internal/xast"
-	"github.com/fsgo/go_fmt/internal/ximports"
 	"github.com/fsgo/go_fmt/internal/xpasser"
 )
 
@@ -23,9 +23,40 @@ type Options = common.Options
 
 // Format 输出格式化的 go 代码
 func Format(fileName string, src []byte, opts *Options) (code []byte, formatted bool, err error) {
+	opts = opts.Clone()
+	if err := opts.Check(); err != nil {
+		return nil, false, err
+	}
+	if src == nil {
+		src, err = os.ReadFile(fileName)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	pr := xpasser.NewProgram()
+	if !opts.FormatOnly && !common.DoNotEdit(fileName, src) {
+		ap, err := filepath.Abs(fileName)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := pr.LoadFiles(*opts, []string{fileName}, map[string][]byte{ap: src}); err != nil {
+			return nil, false, fmt.Errorf("load source packages: %w", err)
+		}
+	}
+	return formatFile(fileName, src, opts, pr)
+}
+
+func formatFile(
+	fileName string,
+	src []byte,
+	opts *Options,
+	pr *xpasser.Program,
+) (code []byte, formatted bool, err error) {
 	defer func() {
 		if re := recover(); re != nil {
-			panic(fmt.Sprintf("when Format %q", fileName))
+			code = nil
+			formatted = false
+			err = fmt.Errorf("format %q: %v", fileName, re)
 		}
 	}()
 	options := opts.Clone()
@@ -51,16 +82,17 @@ func Format(fileName string, src []byte, opts *Options) (code []byte, formatted 
 
 	options.LocalModule = module
 
-	file, err := xpasser.ParserFile(fileName, src)
+	file, err := pr.ParserFile(fileName, src)
 	if err != nil {
 		return nil, false, err
 	}
 
 	req := &common.Request{
-		FileName: fileName,
-		FSet:     xpasser.Default.FSet,
-		AstFile:  file,
-		Opt:      *options,
+		FileName:  fileName,
+		FSet:      pr.FSet,
+		AstFile:   file,
+		TypesInfo: pr.TypesInfo(fileName),
+		Opt:       *options,
 	}
 	// ast.Print(fileSet, file)
 
@@ -72,20 +104,22 @@ func Format(fileName string, src []byte, opts *Options) (code []byte, formatted 
 }
 
 func fix(req *common.Request) ([]byte, error) {
-	xanalysis.Format(req)
+	if !req.Opt.FormatOnly {
+		xanalysis.Format(req)
+	}
 
 	// ast.Print(fileSet,file)
-	if req.Opt.Simplify {
+	if req.Opt.Simplify && !req.Opt.FormatOnly {
 		simplify.Format(req)
 	}
 	FormatComments(req)
 
-	if len(req.Opt.RewriteRules) > 0 {
+	if !req.Opt.FormatOnly && len(req.Opt.RewriteRules) > 0 {
 		err := simplify.Rewrites(req, req.Opt.RewriteRules)
 		if err != nil {
 			return nil, fmt.Errorf("rewrite failed: %w", err)
 		}
-	} else if req.Opt.RewriteWithBuildIn {
+	} else if !req.Opt.FormatOnly && req.Opt.RewriteWithBuildIn {
 		// 当传入 rewrite 规则的时候，不使用默认规则
 		err := simplify.Rewrites(req, simplify.BuildInRewriteRules())
 		if err != nil {
@@ -101,13 +135,9 @@ func fix(req *common.Request) ([]byte, error) {
 		xast.Format(req)
 	}
 
-	code, err := ximports.FormatImports(req)
+	code, err := req.FormatFile()
 	if err != nil {
-		return nil, fmt.Errorf("format import failed: %w", err)
+		return nil, err
 	}
-	code, err = req.Opt.Format(code)
-	if err != nil {
-		return nil, fmt.Errorf("reformat failed: %w, code=\n%s", err, code)
-	}
-	return code, nil
+	return formatLayout(req, code)
 }

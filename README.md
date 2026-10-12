@@ -12,16 +12,18 @@
 # Go 代码格式化
 
 ## 1 功能说明
-* 格式化 import 部分：分3段式，依默认为 `标准库`、`第三方库`、`项目自身库`
+* 自动补全、清理 import，默认按 `标准库`、`第三方库`、`项目自身库` 分组；支持 Go 工作区
 * 格式化单行注释：若为 `//注释内容`，调整为 `//{空格}注释内容`
 * 默认只对 git 项目库里有修改的进行格式化
 * 支持将多行的 copyright 注释修改为单行格式(默认不调整)
 * 简化代码、重写修正(将废弃的方法替换为推荐的新方法)
 * struct 赋值表达式，自动补齐 key
-* 补充空行、移除多余的空行
+* 严格排版，补充空行、移除多余的空行
+* 默认按 120 列目标宽度拆分长行，可用 `-max-len` 调整
+* 提供全局 push 前检查，阻止未格式化的提交推送
 
 对于 import 部分：
-> 1.可使用`-mi`参数来控制是否将多段import合并为一段（默认否）。  
+> 1.可使用`-mi`参数来控制是否将多段import合并为一段（默认合并）。
 > 2.对于注释的import path,会按照其实际路径参与分组和排序。   
 > 3.对于非末行的注释的位置会和其下面紧挨的import path绑定在一起。  
 > 4.末行的注释则会放入import的头部。  
@@ -384,15 +386,20 @@ var a0 = "a0"
 </details>
 
 ## 2 安装/更新
+
+需要 Go 1.26 或更高版本。从本仓库安装当前源码：
+
 ```bash
-export GO111MODULE=on
-go env GOPROXY=https://goproxy.cn,direct
-
-go install github.com/fsgo/go_fmt/cmd/gorgeous@latest
+git clone https://github.com/FlyTOmeLight/go_fmt.git
+cd go_fmt
+go install ./cmd/gorgeous
 ```
-升级 Go 版本后，请用最新版本 go 重新安装/更新 `gorgeous` 。  
-最低 Go 版本：go1.26
 
+命令安装到 `GOBIN`，未设置时安装到 `$(go env GOPATH)/bin`。将此目录加入 `PATH`。更新时，在仓库中执行 `git pull --ff-only`，再执行 `go install ./cmd/gorgeous`。
+
+也可以从 [Releases](https://github.com/FlyTOmeLight/go_fmt/releases) 下载系统对应的二进制，重命名为 `gorgeous`，放入 `PATH` 中的目录。macOS 和 Linux 需要执行 `chmod +x gorgeous`。升级 Go 后，建议重新编译安装。
+
+本仓库保留原有模块路径 `github.com/fsgo/go_fmt`。原上游的 `go install ...@latest` 不会安装本仓库新增的默认格式化流程。
 
 ## 3 使用
 
@@ -404,6 +411,12 @@ usage: gorgeous [flags] [path ...]
   -d	display diffs instead of rewriting files
   -df string
     	display diffs format, support: text, json (default "text")
+  -format-only
+      skip code rewrites and type loading
+  -max-len int
+      target line length (default 120, 0 disables) (default 120)
+  -srcdir string
+      real source filename for stdin/editor input
   -e	enable extra rules (default true)
   -ig string
     	import groups sort rule,
@@ -463,55 +476,76 @@ $ gorgeous abc.go
 $ cat code.go|gorgeous stdin
 ```
 
-## 4 git hooks
-在执行 git 命令时自动格式化或者检查是否已经完成格式化。
+### 3.5 默认格式化流程
 
-### 4.1 使用 bin-auto-switcher 添加全局 Hooks
-[bin-auto-switcher](https://github.com/fsgo/bin-auto-switcher) 可以很方便的对任意命令添加前置和后置 Hooks。
+直接运行 `gorgeous` 会格式化 Git 中有变更的 Go 文件并写回。`gorgeous ./...` 处理整个目录树，`gorgeous -d` 仅显示差异。
 
-1. 安装 git 替换命令（安装后，执行 git 命令时，实际会执行此命令，并执行配置的 Hooks）：  
-    `go install github.com/fsgo/bin-auto-switcher/git@latest`
-2. 编辑配置文件 `~/.config/bas/git.toml`
-```toml
-[[Rules]]
-Cmd = "/usr/local/bin/git" # 替换为实际 git 命令的地址
+默认流程将各项目的能力融合进 gorgeous：先执行已有的代码简化与内置重写，再补全缺失的 import、删除未使用的 import，清理多余空行并统一排版，按 120 列目标宽度拆分长行，最后按“标准库、第三方、当前模块”分组。无需选择工具或另行安装格式化命令。
 
-[[Rules.Pre]]
-Match = "^add\\s"  # 在执行 git add 命令前执行
-Trace = true       # 打印日志
-#Cond  = ["in_dir /home/work/goapps"]
-Cond  = ["go_module"]
-Cmd   = "gorgeous"
+排版复用 gofumpt，导入补删复用 goimports，长行处理复用 golines，默认导入分组复用 GCI。gorgeous 负责统一规则顺序、模块识别、类型约束和输出。版本固定在 `go.mod` 中。
 
-# 在 go.mod 文件所在目录下执行 gorgeous 命令
-#Cmd   = "inner:find-exec"
-#Args  = ["-name","go.mod","-dir_not","testdata","gorgeous"]
-```
-
-### 4.2 使用 git hooks
-
-编辑项目的 `.git/hooks/pre-commit`文件，将`gorgeous`命令加入。
+| 参数 | 作用 |
+| --- | --- |
+| `-format-only` | 跳过 struct 补 key、代码简化和表达式重写，不加载包类型信息；仍执行默认排版、导入修复和长行处理。 |
+| `-max-len N` | 调整目标行宽，默认 `120`，`0` 关闭长行处理。长字符串、部分单行函数等不能保证拆分。 |
+| `-ig stc\|sct` | 调整导入分组顺序，沿用现有参数。 |
+| `-srcdir path/to/file.go` | 为 stdin 提供真实文件名，用于识别模块、工作区和补全 import。 |
 
 ```bash
-# 检查是否格式化
-echo -e '\n gorgeous -d \n' >> $(git rev-parse --git-dir)/hooks/pre-commit
-
-chmod 777 $(git rev-parse --git-dir)/hooks/pre-commit
-
-# 或者：自动格式化
-echo -e '\n gorgeous \n git add . \n' >> $(git rev-parse --git-dir)/hooks/pre-commit
+gorgeous -d ./...          # 预览整个仓库的默认格式化结果
+gorgeous -max-len 100 ./... # 用 100 列目标行宽格式化并写回
+cat code.go | gorgeous -format-only -srcdir /path/to/project/code.go stdin
 ```
 
-还可以配置到全局 Hooks：
-> 该方式会导致项目自身的 hooks 失效。  
-> 若项目有自己的 hooks，请不要配置全局而要配置到单个项目。
+默认分组按源文件位置识别 `go.work`，工作区内模块归入当前模块组；支持 `GOWORK` 和 `GOWORK=off`。显式 `-local`、API 的 `ImportGroupFn` / `ThirdModules` 和 `-mi=false` 继续使用其指定的导入策略。补删 import 仍会整理导入声明，`-mi=false` 不保证保留原始声明的所有空行和分隔。
+
+`-format-only` 不能与 `-r` 一起使用。省略它时，原有 `-s`、`-rr` 和 struct 补 key 行为仍然有效。格式化不会自动执行 `go mod tidy`；缺少依赖时请显式准备依赖，或使用 `-format-only`。类型信息不完整时跳过依赖类型的修正。`-d` 不写源文件、`go.mod` 或 `go.sum`；检测到差异以非零状态退出。
+
+### 3.6 官方 Go 代码现代化
+
+`gorgeous fix` 将后续参数交给本机 Go 工具链的 `go fix`，使用其类型分析、语言版本约束和逐规则开关。此入口独立于格式化参数；先现代化，再按需要运行格式化。
+
 ```bash
-mkdir -p ~/.git_config/hooks/
-git config --global core.hooksPath ~/.git_config/hooks/
-
-echo -e '\n gorgeous -d\n' >>  ~/.git_config/hooks/pre-commit
-chmod 777 ~/.git_config/hooks/pre-commit
+gorgeous fix -diff ./...  # 预览，不写文件
+gorgeous fix -any ./...   # 仅运行 interface{} -> any 规则
+gorgeous fix ./...        # 应用当前 Go 工具链支持的规则
 ```
+
+需要 Go 1.26 或更高版本。可用规则随本机 Go 版本变化；使用 `go tool fix help` 查看。`gorgeous fix` 保留 `go fix` 的输出与退出码。
+
+### 3.7 在 Go 中使用
+
+```go
+opt := gofmtapi.NewOptions()
+opt.FormatOnly = true
+opt.MaxLineLength = 100
+_, formatted, _, err := gofmtapi.NewFormatter().Format("/path/to/project/code.go", source, opt)
+```
+
+传入的 `source` 优先于磁盘内容。返回的 `formatted` 是格式化后的字节；是否实际处理该文件由第三个返回值表示。生成文件仍遵循原有跳过规则。第三方许可见 [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)。
+
+## 4 Git push 前自动检查
+
+安装 `gorgeous` 后，在本仓库执行：
+
+```bash
+sh scripts/install-git-hooks.sh
+```
+
+这会将 `core.hooksPath` 全局设置为 `${XDG_CONFIG_HOME:-$HOME/.config}/git/hooks`。所有使用该全局设置的仓库在 push 前检查实际要推送的提交快照。Go 文件使用 gorgeous 默认规则检查；非 Go 仓库、删除远端分支会跳过格式检查。多个分支或标签指向同一提交时，只检查一次。
+
+检查不会改动工作区。格式不合格时 push 会停止，先整理并提交改动，再重试：
+
+```bash
+gorgeous ./...
+git add path/to/changed.go
+git commit -m "format Go code"
+git push
+```
+
+安装脚本保留各仓库原有 `.git/hooks/` 的行为，包括原有 `pre-push` 的参数与输入。已有其他全局 hooks 配置或同名自定义脚本时，安装脚本会停止，并提示将 `scripts/pre-push` 加入现有 hook 链。仓库单独设置的 `core.hooksPath` 会覆盖全局设置；这类仓库需要将检查加入自己的 hook 链。非标准位置的可执行文件可用 `GORGEOUS_BIN` 指定。
+
+检查提交快照需要 Git、tar 和 Go 工具链。依赖和本地 `replace` 路径也必须能在提交快照中解析；格式化不会执行 `go mod tidy`。
 
 ## 5 GitHub Actions
 ```yml
@@ -522,7 +556,7 @@ chmod 777 ~/.git_config/hooks/pre-commit
 
 - name: gorgeous style check 
   # gorgeous 添加 “-d” 参数后，只检查代码风格，不重写文件，会在终端输出需要格式化的文件信息，退出码为非 0
-  run: go install github.com/fsgo/go_fmt/cmd/gorgeous@latest && gorgeous -d ./...
+  run: go install ./cmd/gorgeous && gorgeous -d ./...
 ```
 
 ## 6 Visual Studio Code
@@ -530,7 +564,7 @@ chmod 777 ~/.git_config/hooks/pre-commit
 ### 6.1 As goformat
 1. Install as goformat:
 ```bash
-go install github.com/fsgo/go_fmt/cmd/goformat@latest
+go install ./cmd/goformat
 ```
 2. 配置的 `Go: Format Tool`，设置为 "goformat"：
 ```

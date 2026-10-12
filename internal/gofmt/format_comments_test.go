@@ -49,7 +49,12 @@ def
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := multilineCommentSingle(tt.args.txt); got != tt.want {
-				t.Errorf("txt=%s \nmultilineCommentSingle() =\n %v,\n want=\n %v", tt.args.txt, got, tt.want)
+				t.Errorf(
+					"txt=%s \nmultilineCommentSingle() =\n %v,\n want=\n %v",
+					tt.args.txt,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}

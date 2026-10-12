@@ -25,6 +25,15 @@ type ImportGroupFunc func(importPath string, opt Options) int
 
 // Options 选项
 type Options struct {
+	// FormatOnly skips code rewrites and package type loading.
+	FormatOnly bool
+
+	// MaxLineLength enables golines when positive. Zero disables line shortening.
+	MaxLineLength int
+
+	// SourcePath supplies the real filename for stdin/editor input.
+	SourcePath string
+
 	// ImportGroupFn 排序函数，可选，若不为空，将不会使用默认内置的规则
 	ImportGroupFn ImportGroupFunc
 
@@ -118,6 +127,12 @@ func (opt *Options) GetImportGroup(t ImportGroupType) int {
 
 // Check 简称 option 是否正确
 func (opt *Options) Check() error {
+	if opt.MaxLineLength < 0 {
+		return errors.New("max line length must be nonnegative")
+	}
+	if opt.FormatOnly && len(opt.RewriteRules) > 0 {
+		return errors.New("format-only cannot be combined with rewrite rules")
+	}
 	if opt.DisplayDiff {
 		opt.Write = false
 	}
@@ -126,6 +141,9 @@ func (opt *Options) Check() error {
 			return fmt.Errorf("invalid ig %q", opt.ImportGroupRule)
 		}
 		for i := 0; i < len(opt.ImportGroupRule); i++ {
+			if strings.Count(opt.ImportGroupRule, opt.ImportGroupRule[i:i+1]) != 1 {
+				return fmt.Errorf("invalid ig %q", opt.ImportGroupRule)
+			}
 			switch opt.ImportGroupRule[i] {
 			case 's', 't', 'c':
 			default:
@@ -139,6 +157,7 @@ func (opt *Options) Check() error {
 // NewDefaultOptions 生成默认的 options
 func NewDefaultOptions() *Options {
 	return &Options{
+		MaxLineLength:      120,
 		TabIndent:          true,
 		TabWidth:           8,
 		LocalModule:        "auto",
@@ -192,7 +211,7 @@ func (opt *Options) AllGoFiles() ([]string, error) {
 		default:
 			info, errStat := os.Stat(name)
 			if errStat != nil {
-				return nil, err
+				return nil, errStat
 			}
 			if info.IsDir() {
 				tmpList, err = allGoFiles(name)
@@ -221,6 +240,14 @@ end:
 // BindFlags 绑定参数信息
 func (opt *Options) BindFlags() {
 	commandLine := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	commandLine.BoolVar(&opt.FormatOnly, "format-only", false, "skip code rewrites and type loading")
+	commandLine.IntVar(
+		&opt.MaxLineLength,
+		"max-len",
+		opt.MaxLineLength,
+		"target line length (default 120, 0 disables)",
+	)
+	commandLine.StringVar(&opt.SourcePath, "srcdir", "", "real source filename for stdin/editor input")
 	commandLine.BoolVar(&opt.Write, "w", opt.Write, "write result to (source) file instead of stdout")
 	commandLine.BoolVar(&opt.DisplayDiff, "d", false, "display diffs instead of rewriting files")
 	commandLine.StringVar(&opt.DisplayFormat, "df", "text", "display diffs format, support: text, json")
